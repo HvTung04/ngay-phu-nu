@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Máy chiếu · Ngày Phụ Nữ</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/host.css">
+</head>
+<body>
+  <section id="scr-lobby" class="screen on">
+    <div class="lobby-top">
+      <div class="qr-card"><img src="/qr.svg" alt="QR vao phong"></div>
+      <div class="qr-side">
+        <h1>MỞ ĐIỆN THOẠI<br>QUÉT QR NÀY</h1>
+        <p class="qr-url">Hoặc gõ: <b id="origin">...</b>/play</p>
+        <p class="join-count">Đã vào phòng: <b id="joined">0</b>/7</p>
+      </div>
+    </div>
+    <div id="slots" class="slots"></div>
+    <div class="lobby-actions">
+      <button id="btn-start" class="big-btn" disabled>BẮT ĐẦU</button>
+    </div>
+  </section>
+
+  <section id="scr-countdown" class="screen">
+    <div id="count-num" class="count-num"></div>
+  </section>
+
+  <section id="scr-race" class="screen">
+    <div class="race-head">
+      <span>ĐANG ĐUA</span>
+      <span id="race-progress">0 / 7 đã về đích</span>
+      <button id="btn-force" class="small-btn">Đánh dấu về đích</button>
+    </div>
+    <div id="lanes" class="lanes"></div>
+  </section>
+
+  <section id="scr-board" class="screen">
+    <h1 class="board-title">BẢNG XẾP HẠNG</h1>
+    <div id="rows" class="rows"></div>
+    <div class="board-actions">
+      <button id="btn-replay" class="big-btn">CHƠI LẠI</button>
+    </div>
+  </section>
+
+  <div id="offline" class="offline-bar">Mất kết nối với máy chủ — đang thử lại…</div>
+  <div id="confetti" class="confetti"></div>
+
+  <script type="module" src="/js/host.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# logs
+npm-debug.log*
+yarn-error.log*
+*.log
+
+# bien moi truong (khong duoc commit secret)
+.env
+.env.*
+!.env.example
+
+# file he thong
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# editor
+.vscode/
+.idea/
+*.swp
+
+# du an Python cung nam thu muc nay, khong thuoc ve game
+main.py
+pyproject.toml
+.python-version

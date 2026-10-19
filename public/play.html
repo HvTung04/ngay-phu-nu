@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#150c2e">
+<title>Ngày Phụ Nữ · Điện thoại</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/css/play.css">
+</head>
+<body>
+
+  <section id="scr-join" class="screen on">
+    <h1 class="join-title">GHI TÊN ĐỂ VÀO</h1>
+    <div class="join-avatar" id="join-avatar"></div>
+    <input id="name" class="join-input" type="text" maxlength="20"
+           placeholder="TÊN CỦA BẠN" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    <button id="btn-join" class="join-btn">VÀO PHÒNG</button>
+    <p id="join-error" class="join-error"></p>
+  </section>
+
+  <section id="scr-wait" class="screen">
+    <div class="wait-box">
+      <div class="wait-avatar" id="wait-avatar"></div>
+      <div class="wait-name" id="wait-name"></div>
+      <p class="wait-tip" id="wait-tip">Đang đợi Host bắt đầu…<br>Khởi động ngón tay đi!</p>
+      <button id="btn-warm" class="warm-btn">CHẠY THỬ (chưa tính điểm)</button>
+    </div>
+  </section>
+
+  <section id="scr-countdown" class="screen">
+    <div id="count-num" class="count-num"></div>
+  </section>
+
+  <section id="scr-race" class="screen">
+    <button id="btn-run" class="run-btn" type="button">CHẠY!</button>
+    <div class="race-meta"><span id="race-pct">0%</span><span id="race-lead"></span></div>
+  </section>
+
+  <section id="scr-done" class="screen">
+    <div class="done-box">
+      <div class="done-avatar" id="done-avatar"></div>
+      <h2 id="done-place">Bạn đã về đích!</h2>
+      <p>Bạn về đích thứ <b id="done-rank">?</b><br>Hãy nhìn lên màn hình lớn!</p>
+      <button id="btn-again" class="warm-btn" hidden>Chờ vòng sau</button>
+    </div>
+  </section>
+
+  <div id="offline" class="offline-bar">Mất kết nối — đang thử lại…</div>
+
+  <script type="module" src="/js/play.js"></script>
+</body>
+</html>

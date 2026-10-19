@@ -1,0 +1,54 @@
+{
+  "note": "Placeholder data cho phase 2 (bo the). Phase 1 chi dung race nen file nay chua duoc dung vao UI. Thay anh chup ten <id>.png vao public/assets/gifts/ de len thay anh that.",
+  "gifts": [
+    {
+      "id": "masterchef",
+      "name": "Masterchef Van Phong",
+      "price": "400k - 450k",
+      "icon": "bento",
+      "desc": "Hop dung thuc an thuy tinh chia ngan + tui giu nhiet bento. Thuy tinh chiu nhiet quay lo vi song an toan."
+    },
+    {
+      "id": "ladar",
+      "name": "Lam Da Phat Sang",
+      "price": "350k - 400k",
+      "icon": "soap",
+      "desc": "Hu tay te bao chet body + tuyp sua tam duong am huong nuoc hoa thao moc."
+    },
+    {
+      "id": "techgirl",
+      "name": "Tech-girl Em Ai",
+      "price": "450k",
+      "icon": "mouse",
+      "desc": "Chuot khong day tinh am + lot chuot desmat co lon."
+    },
+    {
+      "id": "giuluha",
+      "name": "Giu Lua Ngay Dong",
+      "price": "350k",
+      "icon": "mug",
+      "desc": "Bo de dien ham nong coc + hop tra tu loc xinh hoac hop chocolate vien."
+    },
+    {
+      "id": "ocdao",
+      "name": "Oc Dao Decor",
+      "price": "400k",
+      "icon": "mist",
+      "desc": "May phun suong tao am mini cam USB co den LED + lo tinh dau thom."
+    },
+    {
+      "id": "anvat",
+      "name": "An Vat & Nap Nuoc",
+      "price": "400k",
+      "icon": "cup",
+      "desc": "Ly giu nhiet inox cam ong hut 500ml + tui snack tong hop."
+    },
+    {
+      "id": "tram",
+      "name": "Tram Sac Da Nang",
+      "price": "450k",
+      "icon": "powerbank",
+      "desc": "Pin sac du phong mini 10.000mAh + tuyp kem duong da tay mini."
+    }
+  ]
+}

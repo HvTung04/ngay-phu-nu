@@ -305,7 +305,7 @@ test('phong 12 nguoi chay duoc va dung ky nang qua websocket that', async () => 
   for (const c of [host, ...players]) c.ws.close()
 })
 
-test('het tran thi moi nguoi duoc chia qua theo tier', async () => {
+test('het tran chi tra ve thu hang, khong kem ten mon qua', async () => {
   const host = open()
   await host.open()
   host.send({ type: 'host_claim' })
@@ -335,14 +335,41 @@ test('het tran thi moi nguoi duoc chia qua theo tier', async () => {
   assert.equal(finish.players.length, 12)
 
   const byId = new Map(finish.players.map((p) => [p.id, p]))
-  assert.equal(byId.get('id-An').tier, 1)
-  assert.equal(byId.get('id-Cu').tier, 1)
-  assert.equal(byId.get('id-Duc').tier, 2)
-  assert.equal(byId.get('id-Ha').tier, 2)
-  assert.equal(byId.get('id-Lan').tier, 3)
-  assert.equal(byId.get('id-Phu').tier, 3)
-  assert.ok(byId.get('id-An').gift, 'nguoi nhat phai co ten mon qua')
-  assert.notEqual(byId.get('id-An').gift, byId.get('id-Bao').gift)
+  assert.equal(byId.get('id-An').place, 1)
+  assert.equal(byId.get('id-Phu').place, 12)
+  for (const p of finish.players) {
+    assert.equal(p.tier, undefined)
+    assert.equal(p.gift, undefined)
+  }
 
   for (const c of [host, ...players]) c.ws.close()
+})
+
+test('bam thu trong lobby duoc, host bat dau thi dua ve vach xuat phat', async () => {
+  const host = open()
+  await host.open()
+  host.send({ type: 'host_claim' })
+  await host.waitFor((m) => m.type === 'welcome' && m.role === 'host', 'welcome host')
+
+  const c = open()
+  await c.open()
+  c.send({ type: 'player_join', playerId: 'id-An', name: 'An' })
+  await c.waitFor((m) => m.type === 'welcome' && m.role === 'player', 'welcome An')
+
+  for (let i = 0; i < 6; i++) c.send({ type: 'hit' })
+  const warm = await host.waitFor(
+    (m) => m.type === 'room_state' && m.state === 'lobby' && m.players[0]?.progress > 0,
+    'bam thu trong lobby',
+  )
+  assert.ok(warm.players[0].progress > 0, 'lobby phai cho bam')
+
+  host.send({ type: 'host_start' })
+  const reset = await host.waitFor((m) => m.type === 'room_state' && m.state === 'countdown', 'reset')
+  assert.equal(reset.players[0].progress, 0, 'bat dau thi phai ve vach xuat phat')
+
+  await host.waitFor((m) => m.type === 'go', 'GO')
+  const tick = await host.waitFor((m) => m.type === 'race_tick', 'tick')
+  assert.equal(tick.players[0].progress, 0)
+
+  for (const x of [host, c]) x.ws.close()
 })

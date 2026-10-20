@@ -6,6 +6,7 @@ import {
   removePlayer,
   startCountdown,
   beginRace,
+  endRace,
   applyHit,
   forceFinish,
   resetToLobby,
@@ -14,13 +15,14 @@ import {
   snapshot,
   setOnline,
   castSkill,
-  assignPrizes,
   MAX_SLOTS,
   MAX_HITS,
   MAX_HITS_PER_SEC,
   PROGRESS_MAX,
+  RACE_MS,
   SKILLS,
 } from '../game.js'
+import { castFileForSlot } from '../public/js/cast.js'
 
 test('phong moi bat dau o trang thai lobby va chua co ai', () => {
   const room = createRoom()
@@ -54,6 +56,30 @@ test('tu choi lai thi giu nguyen slot cu va khong tao nguoi moi', () => {
   assert.equal(again.slot, 1)
   assert.equal(room.players.length, 2)
   assert.deepEqual(again, { ok: true, slot: 1, player: room.players[1] })
+})
+
+test('nhan vat nguoi choi gui len duoc giu va tra ve trong snapshot', () => {
+  const room = createRoom()
+  addPlayer(room, 'p1', 'An', 'ogre')
+  addPlayer(room, 'p2', 'Bao')
+  const snap = snapshot(room)
+  const an = snap.players.find((p) => p.id === 'p1')
+  const bao = snap.players.find((p) => p.id === 'p2')
+  assert.equal(an.cast, 'ogre')
+  assert.equal(bao.cast, castFileForSlot(bao.slot))
+})
+
+test('nhan vat khong hop le thi quay ve nhan vat mac dinh cua slot', () => {
+  const room = createRoom()
+  const res = addPlayer(room, 'p1', 'An', 'khong-co-that')
+  assert.equal(res.player.cast, castFileForSlot(res.slot))
+})
+
+test('vao lai bang cung id thi giu nguyen nhan vat cu', () => {
+  const room = createRoom()
+  addPlayer(room, 'p1', 'An', 'ogre')
+  addPlayer(room, 'p1', 'An', 'goblin')
+  assert.equal(room.players[0].cast, 'ogre')
 })
 
 test('het slot thi nguoi moi bi tu choi', () => {
@@ -173,6 +199,55 @@ test('tap trong luc dem nguoc bi tu choi', () => {
   addPlayer(room, 'p2', 'Bao')
   startCountdown(room, 'host1')
   assert.equal(applyHit(room, 'p1', 0).reason, 'not_racing')
+})
+
+test('trong lobby van bam duoc de khoi dong tay, nhung khong tinh vao ket qua', () => {
+  const room = createRoom()
+  room.hostId = 'host1'
+  addPlayer(room, 'p1', 'An')
+
+  const hit = applyHit(room, 'p1', 0)
+  assert.equal(hit.accepted, true)
+  assert.equal(hit.finished, false)
+  assert.equal(room.players[0].progress, 2.5)
+  assert.equal(room.players[0].place, null)
+  assert.equal(room.order.length, 0)
+  assert.equal(room.state, 'lobby')
+})
+
+test('bam du 400 lan trong lobby cung khong duoc tinh la ve dich', () => {
+  const room = createRoom()
+  room.hostId = 'host1'
+  addPlayer(room, 'p1', 'An')
+  for (let i = 0; i < MAX_HITS + 60; i++) applyHit(room, 'p1', i * 1000)
+
+  assert.equal(room.players[0].hits, MAX_HITS)
+  assert.equal(room.players[0].place, null)
+  assert.equal(room.order.length, 0)
+  assert.equal(room.state, 'lobby')
+})
+
+test('host bam bat dau thi xoa sach thanh tich bam trong lobby', () => {
+  const room = createRoom()
+  room.hostId = 'host1'
+  addPlayer(room, 'p1', 'An')
+  for (let i = 0; i < 40; i++) applyHit(room, 'p1', i * 1000)
+  assert.ok(room.players[0].progress > 0)
+
+  assert.equal(startCountdown(room, 'host1').ok, true)
+  assert.equal(room.players[0].progress, 0)
+  assert.equal(room.players[0].hits, 0)
+  assert.equal(room.players[0].tokens, MAX_HITS_PER_SEC)
+})
+
+test('khong danh dau ve dich duoc khi chua dua', () => {
+  const room = createRoom()
+  room.hostId = 'host1'
+  addPlayer(room, 'p1', 'An')
+  assert.equal(forceFinish(room, 'p1', 0).reason, 'not_racing')
+
+  startCountdown(room, 'host1')
+  assert.equal(forceFinish(room, 'p1', 0).reason, 'not_racing')
 })
 
 test('mot cham duoc cong dung 2.5 diem', () => {
@@ -305,7 +380,7 @@ test('anh chup phong luon sap xep theo slot va khong lo thong tin rat nhop', () 
   addPlayer(room, 'p2', 'Bao')
   const snap = snapshot(room)
   assert.deepEqual(Object.keys(snap.players[0]).sort(), [
-    'boosted', 'cd', 'effects', 'gift', 'id', 'name', 'online', 'place', 'progress', 'slot', 'tier',
+    'boosted', 'cast', 'cd', 'effects', 'id', 'name', 'online', 'place', 'progress', 'slot',
   ])
   assert.equal(snap.state, 'lobby')
 })
@@ -507,93 +582,25 @@ test('choi lai thi xoa sach ky nang va hieu ung', () => {
   assert.equal(p2.slowFlip, false)
 })
 
-// --- Vong 5: qua theo tier ---
+// --- Vong 5: khong con chia qua trong game ---
 
-const GIFTS = [
-  { id: 'a1', name: 'Qua A1', tier: 1 },
-  { id: 'a2', name: 'Qua A2', tier: 1 },
-  { id: 'a3', name: 'Qua A3', tier: 1 },
-  { id: 'b1', name: 'Qua B1', tier: 2 },
-  { id: 'b2', name: 'Qua B2', tier: 2 },
-  { id: 'b3', name: 'Qua B3', tier: 2 },
-  { id: 'b4', name: 'Qua B4', tier: 2 },
-  { id: 'c1', name: 'Qua C1', tier: 3 },
-  { id: 'c2', name: 'Qua C2', tier: 3 },
-  { id: 'c3', name: 'Qua C3', tier: 3 },
-  { id: 'c4', name: 'Qua C4', tier: 3 },
-  { id: 'c5', name: 'Qua C5', tier: 3 },
-]
-
-function finishedRoom(count = 12) {
+test('het tran chi con thu hang, khong co tier hay ten mon qua', () => {
   const room = createRoom()
   room.hostId = 'host1'
-  for (let i = 0; i < count; i++) addPlayer(room, `p${i + 1}`, `N${i + 1}`)
+  for (let i = 0; i < 12; i++) addPlayer(room, `p${i + 1}`, `N${i + 1}`)
   startCountdown(room, 'host1')
   beginRace(room)
-  for (let i = 0; i < count; i++) forceFinish(room, `p${i + 1}`, 1000 * (i + 1))
-  return room
-}
+  for (let i = 0; i < 12; i++) forceFinish(room, `p${i + 1}`, 1000 * (i + 1))
 
-test('tier 1 cho 3 nguoi dau, tier 2 cho 4 nguoi tiep, tier 3 cho 5 nguoi cuoi', () => {
-  const room = finishedRoom(12)
-  assignPrizes(room, GIFTS)
-  const tiers = room.players.map((p) => p.tier)
-  assert.deepEqual(tiers, [1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3])
-})
-
-test('mon qua trong cung tier chia theo thu tu hang', () => {
-  const room = finishedRoom(12)
-  assignPrizes(room, GIFTS)
-  assert.equal(room.players[0].gift, 'Qua A1')
-  assert.equal(room.players[2].gift, 'Qua A3')
-  assert.equal(room.players[3].gift, 'Qua B1')
-  assert.equal(room.players[6].gift, 'Qua B4')
-  assert.equal(room.players[7].gift, 'Qua C1')
-  assert.equal(room.players[11].gift, 'Qua C5')
-})
-
-test('phong it nguoi thi tier rut gon theo so hang', () => {
-  const room = finishedRoom(5)
-  assignPrizes(room, GIFTS)
-  assert.deepEqual(room.players.map((p) => p.tier), [1, 1, 1, 2, 2])
-  assert.equal(room.players[4].gift, 'Qua B2')
-})
-
-test('nguoi khong ve dich thi khong co qua', () => {
-  const room = createRoom()
-  room.hostId = 'host1'
-  for (let i = 0; i < 4; i++) addPlayer(room, `p${i + 1}`, `N${i + 1}`)
-  startCountdown(room, 'host1')
-  beginRace(room)
-  for (let i = 0; i < 3; i++) forceFinish(room, `p${i + 1}`, 1000 * (i + 1))
-  assignPrizes(room, GIFTS)
-  assert.equal(room.players[3].tier, null)
-  assert.equal(room.players[3].gift, null)
-})
-
-test('khong co mon qua trong tier thi tier van duoc gan', () => {
-  const room = finishedRoom(12)
-  assignPrizes(room, GIFTS.filter((g) => g.tier !== 3))
-  assert.equal(room.players[7].tier, 3)
-  assert.equal(room.players[7].gift, null)
-})
-
-test('anh chup phong co tier va mon qua', () => {
-  const room = finishedRoom(12)
-  assignPrizes(room, GIFTS)
   const snap = snapshot(room, 20000)
-  assert.equal(snap.players[0].tier, 1)
-  assert.equal(snap.players[0].gift, 'Qua A1')
-  assert.equal(snap.players[11].tier, 3)
-  assert.equal(snap.players[11].gift, 'Qua C5')
-})
-
-test('choi lai thi xoa tier va mon qua', () => {
-  const room = finishedRoom(12)
-  assignPrizes(room, GIFTS)
-  resetToLobby(room, 'host1')
-  assert.equal(room.players[0].tier, null)
-  assert.equal(room.players[0].gift, null)
+  assert.deepEqual(snap.order, room.players.map((p) => p.id))
+  for (const p of snap.players) {
+    assert.equal(p.tier, undefined)
+    assert.equal(p.gift, undefined)
+    assert.deepEqual(Object.keys(p).sort(), [
+      'boosted', 'cast', 'cd', 'effects', 'id', 'name', 'online', 'place', 'progress', 'slot',
+    ])
+  }
 })
 
 // --- Vong 6: bi ai lam cho ---
@@ -612,4 +619,44 @@ test('anh chup phong cho biet ai gay ra hieu ung', () => {
   const effect = snap.players[1].effects[0]
   assert.equal(effect.by, 'p1')
   assert.deepEqual(Object.keys(effect).sort(), ['by', 'ms', 'type'])
+})
+
+// --- Vong 7: gio dua 90 giay ---
+
+test('snapshot tra ve thoi gian con lai cua tran dua', () => {
+  const room = createRoom()
+  room.hostId = 'host1'
+  addPlayer(room, 'p1', 'An')
+  startCountdown(room, 'host1')
+  beginRace(room, 5000)
+  assert.equal(RACE_MS, 90000)
+  assert.equal(snapshot(room, 5000).endsIn, 90000)
+  assert.equal(snapshot(room, 35000).endsIn, 60000)
+  assert.equal(snapshot(room, 95000).endsIn, 0)
+})
+
+test('het gio thi tu ket thuc, nguoi chua ve dich xep theo tien do', () => {
+  const room = createRoom()
+  room.hostId = 'host1'
+  addPlayer(room, 'p1', 'An')
+  addPlayer(room, 'p2', 'Bao')
+  addPlayer(room, 'p3', 'Chi')
+  startCountdown(room, 'host1')
+  beginRace(room, 1000)
+  forceFinish(room, 'p2', 2000)
+  for (let i = 0; i < 3; i++) applyHit(room, 'p1', 3000)
+  for (let i = 0; i < 7; i++) applyHit(room, 'p3', 3000)
+
+  const result = endRace(room, 1000 + RACE_MS)
+  assert.equal(room.state, 'finished')
+  assert.deepEqual(room.order, ['p2', 'p3', 'p1'])
+  assert.deepEqual(result.players.map((p) => p.place), [3, 1, 2])
+  assert.equal(snapshot(room, 1000 + RACE_MS).endsIn, null)
+})
+
+test('goi ket thuc khi tran chua chay thi khong lam gi', () => {
+  const room = createRoom()
+  addPlayer(room, 'p1', 'An')
+  assert.equal(endRace(room, 1000), null)
+  assert.equal(room.state, 'lobby')
 })

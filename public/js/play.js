@@ -1,8 +1,8 @@
 import { connect, playerId } from '/js/net.js'
-import { runnerSvg, runnerCss } from '/js/pixel.js'
+import { castHtml, castCss, castFileForName, randomCast } from '/js/cast.js'
 import { sfx, unlockAudio } from '/js/sfx.js'
 
-document.head.insertAdjacentHTML('beforeend', runnerCss())
+document.head.insertAdjacentHTML('beforeend', castCss())
 
 const $ = (id) => document.getElementById(id)
 const screens = ['scr-join', 'scr-wait', 'scr-countdown', 'scr-race', 'scr-done']
@@ -20,7 +20,7 @@ const ERRORS = {
   not_racing: 'Chưa tới lúc đua.',
 }
 
-const SKILL_LABEL = { chan: '⛔ CHẶN', cham: '🐌 CHẬM', tangtoc: '⚡' }
+const SKILL_LABEL = { chan: 'CHẶN', cham: 'CHẬM', tangtoc: 'TĂNG TỐC' }
 
 let state = 'lobby'
 let me = null
@@ -29,9 +29,12 @@ let joined = false
 let showedDone = false
 let skills = {}
 let pendingSkill = null
-let bannerKind = null
 let toastTimer = null
-let avatarName = null
+let avatarKey = null
+let lastChipsHtml = ''
+let seenKinds = new Set()
+let selectedCast = null
+let endsIn = null
 
 const skillButtons = [...document.querySelectorAll('.skill-btn')]
 
@@ -42,7 +45,8 @@ const net = connect(onMessage, (status) => {
 
 function join() {
   if (!joined) return
-  net.send({ type: 'player_join', playerId: playerId(), name: me?.name ?? savedName() })
+  const name = me?.name ?? savedName()
+  net.send({ type: 'player_join', playerId: playerId(), name, cast: selectedCast ?? castFileForName(name) })
 }
 
 function savedName() {
@@ -57,11 +61,13 @@ function onMessage(msg) {
     case 'room_state':
       state = msg.state
       players = msg.players
+      endsIn = msg.endsIn ?? null
       syncMe()
       break
     case 'race_tick':
       players = msg.players
       if (msg.state) state = msg.state
+      endsIn = msg.endsIn ?? null
       syncMe()
       break
     case 'countdown':
@@ -81,7 +87,6 @@ function onMessage(msg) {
         syncMe()
       }
       onFinish()
-      showPrize()
       break
     case 'error':
       if (state === 'racing') toast(ERRORS[msg.reason] ?? msg.reason)
@@ -98,21 +103,26 @@ function syncMe() {
     showedDone = false
     $('btn-again').hidden = true
     $('race-pct').textContent = '0%'
-    switchTo('scr-wait')
+    switchTo('scr-race')
   }
 
   if (!found) return
   me = found
 
-  if (!showedDone) {
+  const key = `${found.name}:${found.slot}:${found.cast}`
+  if (avatarKey !== key) {
+    avatarKey = key
+    $('wait-avatar').innerHTML = castHtml({ cast: found.cast, slot: found.slot, fitH: 144, fitW: 144, anim: 'idle' })
+    $('done-avatar').innerHTML = castHtml({ cast: found.cast, slot: found.slot, fitH: 144, fitW: 144, anim: 'idle' })
+    $('race-avatar').innerHTML = castHtml({ cast: found.cast, slot: found.slot, fitH: 140, fitW: 140 })
+    $('race-name').textContent = found.name
     $('wait-name').textContent = found.name
-    if (avatarName !== found.name) {
-      avatarName = found.name
-      $('wait-avatar').innerHTML = idle(found.name)
-      $('done-avatar').innerHTML = idle(found.name)
-    }
-    if (state === 'racing') switchTo('scr-race')
-    else switchTo('scr-wait')
+  }
+
+  if (!showedDone) {
+    // Vao phong la bam duoc ngay, khong phai doi den luc dua.
+    if (state === 'lobby' || state === 'racing') switchTo('scr-race')
+    else if (state !== 'countdown') switchTo('scr-wait')
     $('join-error').textContent = ''
   }
 
@@ -120,9 +130,22 @@ function syncMe() {
   $('race-lead').textContent = leaderLabel(found)
 
   renderSkills(found)
-  syncBanner(found)
+  renderChips(found)
+  renderClock()
 
   if (found.place !== null) onFinished(found)
+}
+
+function renderClock() {
+  const el = $('race-clock')
+  if (state !== 'racing' || endsIn === null) {
+    el.hidden = true
+    return
+  }
+  el.hidden = false
+  const total = Math.max(0, Math.ceil(endsIn / 1000))
+  el.textContent = `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
+  el.classList.toggle('low', total <= 10)
 }
 
 /* ---------- ky nang ---------- */
@@ -132,9 +155,14 @@ function renderSkills(found) {
     const id = btn.dataset.skill
     const cd = found.cd?.[id] ?? 0
     const cooling = cd > 0
+    const total = skills[id]?.cooldown ?? 1
     btn.classList.toggle('cooling', cooling)
-    btn.disabled = cooling || !runEnabled
+    btn.disabled = cooling || !runEnabled || state !== 'racing'
     btn.querySelector('.sk-cd').textContent = cooling ? `${Math.ceil(cd / 1000)}s` : ''
+    btn.style.setProperty('--cool', `${cooling ? Math.min(100, (cd / total) * 100) : 0}%`)
+    const desc = skillDesc(id)
+    const descEl = btn.querySelector('.sk-desc')
+    if (descEl.textContent !== desc) descEl.textContent = desc
     const label = SKILL_LABEL[id] ?? skills[id]?.name ?? id
     if (btn.querySelector('.sk-name').textContent !== label) {
       btn.querySelector('.sk-name').textContent = label
@@ -142,9 +170,25 @@ function renderSkills(found) {
   }
 }
 
+function skillDesc(id) {
+  const s = skills[id]
+  if (!s) return ''
+  if (s.kind === 'self') return `+${s.bonus} điểm`
+  return `${Math.round(s.duration / 1000)}s`
+}
+
+function rankOf(list) {
+  return [...list].sort((a, b) => {
+    if (a.place !== null && b.place !== null) return a.place - b.place
+    if (a.place !== null) return -1
+    if (b.place !== null) return 1
+    return b.progress - a.progress || a.slot - b.slot
+  })
+}
+
 function onSkillClick(id) {
   const skill = skills[id] ?? { id, kind: id === 'tangtoc' ? 'self' : 'target' }
-  if (!runEnabled) return
+  if (!runEnabled || state !== 'racing') return
   if (skill.kind === 'self') {
     net.send({ type: 'cast', skillId: id })
     return
@@ -154,7 +198,10 @@ function onSkillClick(id) {
 
 function openPicker(skillId) {
   const myId = playerId()
-  const targets = players.filter((p) => p.id !== myId && p.place === null)
+  const ranked = rankOf(players)
+  const targets = ranked
+    .map((p, i) => ({ p, rank: i + 1 }))
+    .filter(({ p }) => p.id !== myId && p.place === null)
   if (!targets.length) {
     toast('Không còn ai để nhắm.')
     return
@@ -162,8 +209,19 @@ function openPicker(skillId) {
   pendingSkill = skillId
   $('target-picker').innerHTML =
     targets
-      .map((p) => `<button class="target-btn" type="button" data-id="${escapeHtml(p.id)}">${escapeHtml(p.name)}</button>`)
-      .join('') + '<button class="target-btn cancel" type="button" data-cancel="1">HỦY</button>'
+      .map(({ p, rank }) => {
+        const eff = (p.effects ?? [])
+          .filter((e) => e.type === 'chan' || e.type === 'cham')
+          .map((e) => (e.type === 'chan' ? '⛔' : '🐌'))
+          .join('')
+        return `<button class="target-btn" type="button" data-id="${escapeHtml(p.id)}">
+          <span class="tg-rank">${rank}</span>
+          <span class="tg-ava">${castHtml({ cast: p.cast, slot: p.slot, fitH: 44, fitW: 44, anim: 'idle' })}</span>
+          <span class="tg-name">${escapeHtml(p.name)}${eff ? ` ${eff}` : ''}</span>
+          <span class="tg-pct">${Math.floor(p.progress / 10)}%</span>
+        </button>`
+      })
+      .join('') + '<button class="target-btn target-cancel" type="button" data-cancel="1">HỦY</button>'
   $('target-picker').classList.add('on')
 }
 
@@ -197,30 +255,35 @@ function triggerFx(kind) {
   el.className = `fx-layer on ${kind}`
 }
 
-function syncBanner(found) {
-  const eff = (found.effects ?? []).find((e) => e.type === 'chan' || e.type === 'cham')
-  const el = $('alert-banner')
-  const btn = $('btn-run')
-  if (!eff) {
-    if (bannerKind) {
-      el.classList.remove('on')
-      bannerKind = null
-      btn.classList.remove('blocked', 'slowed')
-    }
-    return
+function renderChips(found) {
+  const effects = found.effects ?? []
+  const kinds = new Set()
+  let html = ''
+
+  for (const eff of effects) {
+    if (eff.type !== 'chan' && eff.type !== 'cham') continue
+    kinds.add(eff.type)
+    const secs = (Math.ceil(eff.ms / 500) / 2).toFixed(1)
+    const icon = eff.type === 'chan' ? '⛔ BỊ CHẶN' : '🐌 BỊ CHẬM'
+    const who = players.find((x) => x.id === eff.by)
+    html += `<span class="chip ${eff.type}">${icon} ${secs}s${who ? ` · ${escapeHtml(who.name)}` : ''}</span>`
   }
-  if (bannerKind !== eff.type) {
-    bannerKind = eff.type
-    el.className = `alert-banner on ${eff.type}`
-    navigator.vibrate?.(eff.type === 'chan' ? [90, 60, 90] : [60, 40, 60])
-    btn.classList.toggle('blocked', eff.type === 'chan')
-    btn.classList.toggle('slowed', eff.type === 'cham')
-    triggerFx(eff.type)
+  if (found.boosted) html += '<span class="chip boost">⚡ TĂNG TỐC</span>'
+
+  if (html !== lastChipsHtml) {
+    lastChipsHtml = html
+    $('status-chips').innerHTML = html
   }
-  const label = eff.type === 'chan' ? '⛔ BỊ CHẶN!' : '🐌 BỨT CHẬM!'
-  $('alert-text').textContent = `${label} ${(eff.ms / 1000).toFixed(1)}s`
-  const who = players.find((x) => x.id === eff.by)
-  $('alert-by').textContent = who ? `bởi ${who.name}` : ''
+
+  for (const kind of kinds) {
+    if (seenKinds.has(kind)) continue
+    navigator.vibrate?.(kind === 'chan' ? [90, 60, 90] : [60, 40, 60])
+    triggerFx(kind)
+  }
+  seenKinds = kinds
+
+  $('btn-run').classList.toggle('blocked', kinds.has('chan'))
+  $('btn-run').classList.toggle('slowed', kinds.has('cham'))
 }
 
 function toast(text) {
@@ -238,8 +301,7 @@ function escapeHtml(value) {
 }
 
 function leaderLabel(found) {
-  const sorted = [...players].sort((a, b) => b.progress - a.progress)
-  const rank = sorted.findIndex((p) => p.id === found.id) + 1
+  const rank = rankOf(players).findIndex((p) => p.id === found.id) + 1
   return `Hạng ${rank}/${players.length}`
 }
 
@@ -268,14 +330,6 @@ function onFinish() {
   onFinished(me)
 }
 
-function showPrize() {
-  if (!me || !me.gift) return
-  $('done-tier').textContent = `TIER ${me.tier}`
-  $('done-tier').className = `tier t${me.tier}`
-  $('done-gift').textContent = me.gift
-  $('done-prize').hidden = false
-}
-
 function onFinished(player) {
   if (!player || player.place === null || showedDone) return
   showedDone = true
@@ -283,13 +337,13 @@ function onFinished(player) {
   closePicker()
   navigator.vibrate?.([40, 60, 40])
   $('done-rank').textContent = String(player.place)
-  $('done-place').textContent = player.place === 1 ? 'VỀ ĐÍCH NHẤT!' : 'Bạn đã về đích!'
+  const finished = player.progress >= 1000
+  $('done-place').textContent = finished
+    ? player.place === 1 ? 'VỀ ĐÍCH NHẤT!' : 'Bạn đã về đích!'
+    : 'HẾT GIỜ!'
+  $('done-line').innerHTML = `${finished ? 'Bạn về đích thứ' : 'Bạn đứng thứ'} <b id="done-rank">${player.place}</b><br>Hãy nhìn lên màn hình lớn!`
   $('btn-again').hidden = false
   switchTo('scr-done')
-}
-
-function idle(name) {
-  return runnerSvg(name).replace('class="runner"', 'class="runner idle"')
 }
 
 /* ---------- spam tap ---------- */
@@ -344,9 +398,13 @@ $('target-picker').addEventListener('click', (e) => {
 
 /* ---------- join form ---------- */
 
-$('name').addEventListener('input', (e) => {
-  const value = e.target.value
-  $('join-avatar').innerHTML = idle(value || 'A')
+function updateJoinAvatar() {
+  $('join-avatar').innerHTML = castHtml({ cast: selectedCast, fitH: 112, fitW: 112, anim: 'idle' })
+}
+
+$('name').addEventListener('input', () => {
+  selectedCast = randomCast()
+  updateJoinAvatar()
 })
 
 $('name').addEventListener('keydown', (e) => {
@@ -383,6 +441,7 @@ $('btn-again').addEventListener('click', () => {
   location.reload()
 })
 
-$('join-avatar').innerHTML = idle('A')
+selectedCast = randomCast()
+updateJoinAvatar()
 
 if (savedName()) $('name').value = savedName()

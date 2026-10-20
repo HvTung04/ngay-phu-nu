@@ -12,12 +12,12 @@ import {
   releaseHost,
   startCountdown,
   beginRace,
+  endRace,
   applyHit,
   castSkill,
   forceFinish,
   resetToLobby,
   snapshot,
-  assignPrizes,
   MAX_HITS,
   MAX_SLOTS,
   MAX_HITS_PER_SEC,
@@ -33,17 +33,6 @@ const HEARTBEAT_MS = 500
 const COUNTDOWN_FROM = 3
 
 const room = createRoom()
-const gifts = loadGifts()
-
-function loadGifts() {
-  try {
-    const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'gifts.json'), 'utf8'))
-    return Array.isArray(raw.gifts) ? raw.gifts : []
-  } catch (err) {
-    console.warn('[ngay-phu-nu] khong doc duoc gifts.json:', err.message)
-    return []
-  }
-}
 
 const PAGES = new Map([
   ['/host', 'host.html'],
@@ -190,7 +179,7 @@ function playerJoin(ws, msg) {
   const playerId = String(msg.playerId ?? '').slice(0, 64)
   if (!playerId) return send(ws, { type: 'error', reason: 'bad_player_id' })
 
-  const result = addPlayer(room, playerId, msg.name)
+  const result = addPlayer(room, playerId, msg.name, msg.cast)
   if (!result.ok) {
     return send(ws, { type: 'error', reason: result.reason })
   }
@@ -249,13 +238,19 @@ function hostStart(ws) {
   if (!ws.isHost) return
   const result = startCountdown(room, ws.hostId)
   if (!result.ok) return send(ws, { type: 'error', reason: result.reason })
+  // Day trang thai da reset ngay, khong doi nhip tim 500ms.
+  broadcastState()
   runCountdown()
 }
 
 function forceFinishCmd(ws, msg) {
   if (!ws.isHost) return
   const result = forceFinish(room, String(msg.playerId ?? ''), Date.now())
-  if (!result.accepted) return send(ws, { type: 'error', reason: result.reason })
+  if (!result.accepted) {
+    // Nguoi da ve dich hoac tran da xong: bo qua, khong ban loi len man hinh lon.
+    if (result.reason === 'already_finished' || result.reason === 'not_racing') return
+    return send(ws, { type: 'error', reason: result.reason })
+  }
   sendAll({ type: 'player_finished', playerId: msg.playerId, place: result.place })
 }
 
@@ -288,16 +283,22 @@ function startTick() {
   if (tickTimer) return
   tickTimer = setInterval(() => {
     const snap = snapshot(room)
-    sendAll({ type: 'race_tick', state: snap.state, players: snap.players, order: snap.order })
+    sendAll({
+      type: 'race_tick',
+      state: snap.state,
+      players: snap.players,
+      order: snap.order,
+      endsIn: snap.endsIn,
+    })
 
+    // Het 90s thi tu ket thuc, khong can bam ket thuc thu cong.
+    const timeUp = snap.endsIn === 0
     const allDone = room.players.every((p) => p.place !== null)
-    if (allDone) {
-      room.state = 'finished'
+    if (timeUp || allDone) {
       clearInterval(tickTimer)
       tickTimer = null
-      assignPrizes(room, gifts)
-      const final = snapshot(room)
-      sendAll({ type: 'finish', order: final.order, players: final.players })
+      const final = endRace(room)
+      if (final) sendAll({ type: 'finish', order: final.order, players: final.players })
     }
   }, TICK_MS)
 }

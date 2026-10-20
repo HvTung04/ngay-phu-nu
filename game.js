@@ -4,6 +4,9 @@ export const MAX_HITS = 400
 export const PROGRESS_MAX = 1000
 export const MAX_HITS_PER_SEC = 16
 export const PROGRESS_PER_HIT = PROGRESS_MAX / MAX_HITS
+export const RACE_MS = 90000
+
+import { castFileForSlot, isCast } from './public/js/cast.js'
 
 // Moi con so can bang cua ky nang deu nam o day.
 // Chinh mot cho, sua mot dong la xong ca game.
@@ -35,45 +38,7 @@ export const SKILLS = {
 
 export const SKILL_IDS = Object.keys(SKILLS)
 
-// Qua chia theo 3 tier: 3 nguoi dau, 4 nguoi tiep, 5 nguoi cuoi.
-export const TIER_SIZES = [3, 4, 5]
-
 const BOOST_BADGE_MS = 1500
-
-export function tierForPlace(place) {
-  let acc = 0
-  for (let i = 0; i < TIER_SIZES.length; i++) {
-    acc += TIER_SIZES[i]
-    if (place <= acc) return i + 1
-  }
-  return TIER_SIZES.length
-}
-
-export function assignPrizes(room, gifts) {
-  const byTier = new Map()
-  for (const gift of gifts ?? []) {
-    const tier = Number(gift.tier ?? 0)
-    if (!tier) continue
-    if (!byTier.has(tier)) byTier.set(tier, [])
-    byTier.get(tier).push(gift)
-  }
-
-  for (const player of room.players) {
-    player.tier = null
-    player.gift = null
-  }
-
-  const used = new Map()
-  const ranked = room.players.filter((p) => p.place !== null).sort((a, b) => a.place - b.place)
-  for (const player of ranked) {
-    const tier = tierForPlace(player.place)
-    const list = byTier.get(tier) ?? []
-    const index = used.get(tier) ?? 0
-    used.set(tier, index + 1)
-    player.tier = tier
-    player.gift = list[index]?.name ?? null
-  }
-}
 
 export function createRoom() {
   return {
@@ -81,6 +46,7 @@ export function createRoom() {
     hostId: null,
     players: [],
     order: [],
+    startedAt: null,
   }
 }
 
@@ -101,20 +67,60 @@ export function releaseHost(room, id) {
 export function startCountdown(room, hostId) {
   if (room.hostId !== hostId) return { ok: false, reason: 'not_host' }
   if (room.state !== 'lobby') return { ok: false, reason: 'already_started' }
+  // Tap trong luc cho chi la khoi dong tay: xoa sach truoc khi dem nguoc.
+  resetPlayers(room)
   room.state = 'countdown'
   return { ok: true }
 }
 
-export function beginRace(room) {
+function resetPlayers(room) {
+  room.order = []
+  room.startedAt = null
+  for (const player of room.players) {
+    player.hits = 0
+    player.progress = 0
+    player.place = null
+    player.finishedAt = null
+    player.tokens = MAX_HITS_PER_SEC
+    player.lastRefill = null
+    player.effects = []
+    player.slowFlip = false
+    player.boostedUntil = 0
+    for (const id of SKILL_IDS) player.readyAt[id] = 0
+  }
+}
+
+export function beginRace(room, now = Date.now()) {
   if (room.state !== 'countdown') return false
   room.state = 'racing'
+  room.startedAt = now
   return true
+}
+
+// Het gio: nguoi chua ve dich duoc xep theo tien do, hoa thi theo slot.
+export function endRace(room, now = Date.now()) {
+  if (room.state !== 'racing') return null
+  const remaining = room.players
+    .filter((p) => p.place === null)
+    .sort((a, b) => b.progress - a.progress || b.hits - a.hits || a.slot - b.slot)
+  for (const player of remaining) {
+    player.place = room.order.length + 1
+    room.order.push(player.id)
+  }
+  room.state = 'finished'
+  return { order: [...room.order], players: snapshot(room, now).players }
+}
+
+export function raceEndsAt(room) {
+  return room.state === 'racing' && room.startedAt !== null ? room.startedAt + RACE_MS : null
 }
 
 export function applyHit(room, playerId, now) {
   const player = room.players.find((p) => p.id === playerId)
   if (!player) return { accepted: false, reason: 'no_player' }
-  if (room.state !== 'racing') return { accepted: false, reason: 'not_racing' }
+  // Lobby = san tap thu, chay duoc nhung khong tinh vao ket qua.
+  const warmup = room.state === 'lobby'
+  if (!warmup && room.state !== 'racing') return { accepted: false, reason: 'not_racing' }
   if (player.place !== null) return { accepted: false, reason: 'already_finished' }
 
   pruneEffects(player, now)
@@ -132,10 +138,10 @@ export function applyHit(room, playerId, now) {
     if (player.slowFlip) return { accepted: true, scored: false }
   }
 
-  player.hits += 1
+  player.hits = Math.min(MAX_HITS, player.hits + 1)
   player.progress = Math.min(PROGRESS_MAX, player.hits * PROGRESS_PER_HIT)
 
-  if (player.hits >= MAX_HITS) {
+  if (!warmup && player.hits >= MAX_HITS) {
     player.place = room.order.length + 1
     player.finishedAt = now
     room.order.push(player.id)
@@ -198,8 +204,10 @@ function castSelf(room, caster, skill, now) {
 }
 
 export function forceFinish(room, playerId, now) {
+  if (room.state !== 'racing') return { accepted: false, reason: 'not_racing' }
   const player = room.players.find((p) => p.id === playerId)
-  if (!player || player.place !== null) return { accepted: false, reason: 'no_player' }
+  if (!player) return { accepted: false, reason: 'no_player' }
+  if (player.place !== null) return { accepted: false, reason: 'already_finished' }
   player.hits = MAX_HITS
   player.progress = PROGRESS_MAX
   player.place = room.order.length + 1
@@ -211,43 +219,30 @@ export function forceFinish(room, playerId, now) {
 export function resetToLobby(room, hostId) {
   if (room.hostId !== hostId) return { ok: false, reason: 'not_host' }
   room.state = 'lobby'
-  room.order = []
-  for (const player of room.players) {
-    player.hits = 0
-    player.progress = 0
-    player.place = null
-    player.finishedAt = null
-    player.tokens = MAX_HITS_PER_SEC
-    player.lastRefill = null
-    player.effects = []
-    player.slowFlip = false
-    player.boostedUntil = 0
-    player.tier = null
-    player.gift = null
-    for (const id of SKILL_IDS) player.readyAt[id] = 0
-  }
+  resetPlayers(room)
   return { ok: true }
 }
 
 export function snapshot(room, now = Date.now()) {
+  const endsAt = raceEndsAt(room)
   return {
     state: room.state,
     hostId: room.hostId,
     order: [...room.order],
+    endsIn: endsAt === null ? null : Math.max(0, endsAt - now),
     players: [...room.players]
       .sort((a, b) => a.slot - b.slot)
       .map((p) => ({
         id: p.id,
         name: p.name,
         slot: p.slot,
+        cast: p.cast,
         progress: p.progress,
         place: p.place,
         online: p.online,
         effects: activeEffects(p, now),
         cd: cooldowns(p, now),
         boosted: p.boostedUntil > now,
-        tier: p.tier,
-        gift: p.gift,
       })),
   }
 }
@@ -283,10 +278,11 @@ function refillTokens(player, now) {
   player.lastRefill = now
 }
 
-export function addPlayer(room, id, rawName) {
+export function addPlayer(room, id, rawName, cast = null) {
   const existing = room.players.find((p) => p.id === id)
   if (existing) {
     existing.online = true
+    if (isCast(cast) && !existing.cast) existing.cast = cast
     return { ok: true, slot: existing.slot, player: existing }
   }
 
@@ -302,6 +298,7 @@ export function addPlayer(room, id, rawName) {
     id,
     name,
     slot,
+    cast: isCast(cast) ? cast : castFileForSlot(slot),
     hits: 0,
     progress: 0,
     place: null,
@@ -312,8 +309,6 @@ export function addPlayer(room, id, rawName) {
     effects: [],
     slowFlip: false,
     boostedUntil: 0,
-    tier: null,
-    gift: null,
     readyAt: Object.fromEntries(SKILL_IDS.map((id) => [id, 0])),
   }
   room.players.push(player)

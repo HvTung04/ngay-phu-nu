@@ -35,30 +35,32 @@
   </section>
 
   <section id="scr-race" class="screen">
-    <div class="race-top">
-      <span id="race-pct">0%</span>
-      <span id="race-lead"></span>
+    <div class="me-panel">
+      <div class="me-avatar" id="race-avatar"></div>
+      <div class="me-info">
+        <div class="me-name" id="race-name"></div>
+        <div class="me-clock" id="race-clock" hidden>1:30</div>
+        <div class="me-rank" id="race-lead">Hạng 1/1</div>
+        <div class="me-pct" id="race-pct">0%</div>
+      </div>
     </div>
+    <div class="chips" id="status-chips"></div>
     <div class="run-area">
       <button id="btn-run" class="run-btn" type="button">CHẠY!</button>
     </div>
     <div class="skill-bar" id="skill-bar">
       <button class="skill-btn" data-skill="chan" type="button">
-        <span class="sk-name">CHẶN</span><span class="sk-cd"></span>
+        <span class="sk-name">CHẶN</span><span class="sk-desc"></span><span class="sk-cd"></span><span class="sk-fill"></span>
       </button>
       <button class="skill-btn" data-skill="cham" type="button">
-        <span class="sk-name">CHẬM</span><span class="sk-cd"></span>
+        <span class="sk-name">CHẬM</span><span class="sk-desc"></span><span class="sk-cd"></span><span class="sk-fill"></span>
       </button>
       <button class="skill-btn" data-skill="tangtoc" type="button">
-        <span class="sk-name">⚡</span><span class="sk-cd"></span>
+        <span class="sk-name">TĂNG TỐC</span><span class="sk-desc"></span><span class="sk-cd"></span><span class="sk-fill"></span>
       </button>
     </div>
     <div id="target-picker" class="target-picker"></div>
     <div id="fx-layer" class="fx-layer"></div>
-    <div id="alert-banner" class="alert-banner">
-      <span id="alert-text"></span>
-      <span id="alert-by" class="by"></span>
-    </div>
     <div id="toast" class="toast"></div>
   </section>
 
@@ -66,11 +68,7 @@
     <div class="done-box">
       <div class="done-avatar" id="done-avatar"></div>
       <h2 id="done-place">Bạn đã về đích!</h2>
-      <p>Bạn về đích thứ <b id="done-rank">?</b><br>Hãy nhìn lên màn hình lớn!</p>
-      <div id="done-prize" class="done-prize" hidden>
-        <span id="done-tier" class="tier"></span>
-        <span id="done-gift"></span>
-      </div>
+      <p id="done-line">Bạn về đích thứ <b id="done-rank">?</b><br>Hãy nhìn lên màn hình lớn!</p>
       <button id="btn-again" class="warm-btn" hidden>Chờ vòng sau</button>
     </div>
   </section>

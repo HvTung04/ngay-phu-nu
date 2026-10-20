@@ -8,37 +8,24 @@
 <link rel="stylesheet" href="/css/host.css">
 </head>
 <body>
-  <section id="scr-lobby" class="screen on">
-    <div class="lobby-top">
-      <div class="lobby-side">
-        <h1>MỞ ĐIỆN THOẠI<br>VÀO PHÒNG</h1>
-        <p class="lobby-hint">Trên điện thoại, gõ địa chỉ này:</p>
-        <p class="lobby-url"><b id="origin">...</b></p>
-        <p class="join-count">Đã vào phòng: <b id="joined">0</b>/<b id="max-slots">12</b></p>
-      </div>
-    </div>
-    <div id="slots" class="slots"></div>
-    <div class="lobby-actions">
-      <button id="btn-start" class="big-btn" disabled>BẮT ĐẦU</button>
-    </div>
-  </section>
-
-  <section id="scr-countdown" class="screen">
-    <div id="count-num" class="count-num"></div>
-  </section>
-
-  <section id="scr-race" class="screen">
-    <div class="race-head">
-      <span>ĐANG ĐUA</span>
-      <span id="race-progress">0 / 12 đã về đích</span>
-      <button id="btn-force" class="small-btn">Đánh dấu về đích</button>
+  <section id="scr-arena" class="screen on">
+    <div class="arena-head">
+      <span id="phase-label" class="phase">CHỜ NGƯỜI CHƠI</span>
+      <span class="arena-center">
+        <span id="join-info" class="join-info">Vào: <b id="origin">...</b></span>
+        <span id="race-clock" class="race-clock" hidden>1:30</span>
+        <span id="race-progress" class="race-progress" hidden>0 / 0 đã về đích</span>
+      </span>
+      <span class="arena-actions">
+        <button id="btn-start" class="big-btn">BẮT ĐẦU</button>
+      </span>
     </div>
     <div id="lanes" class="lanes"></div>
+    <div id="count-overlay" class="count-overlay"><span id="count-num" class="count-num"></span></div>
   </section>
 
   <section id="scr-board" class="screen">
     <h1 class="board-title">BẢNG XẾP HẠNG</h1>
-    <p class="board-sub">TIER 1 · 3 người đầu &nbsp;|&nbsp; TIER 2 · 4 người kế tiếp &nbsp;|&nbsp; TIER 3 · 5 người còn lại</p>
     <div id="rows" class="rows"></div>
     <div class="board-actions">
       <button id="btn-replay" class="big-btn">CHƠI LẠI</button>

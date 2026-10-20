@@ -35,8 +35,31 @@
   </section>
 
   <section id="scr-race" class="screen">
-    <button id="btn-run" class="run-btn" type="button">CHẠY!</button>
-    <div class="race-meta"><span id="race-pct">0%</span><span id="race-lead"></span></div>
+    <div class="race-top">
+      <span id="race-pct">0%</span>
+      <span id="race-lead"></span>
+    </div>
+    <div class="run-area">
+      <button id="btn-run" class="run-btn" type="button">CHẠY!</button>
+    </div>
+    <div class="skill-bar" id="skill-bar">
+      <button class="skill-btn" data-skill="chan" type="button">
+        <span class="sk-name">CHẶN</span><span class="sk-cd"></span>
+      </button>
+      <button class="skill-btn" data-skill="cham" type="button">
+        <span class="sk-name">CHẬM</span><span class="sk-cd"></span>
+      </button>
+      <button class="skill-btn" data-skill="tangtoc" type="button">
+        <span class="sk-name">⚡</span><span class="sk-cd"></span>
+      </button>
+    </div>
+    <div id="target-picker" class="target-picker"></div>
+    <div id="fx-layer" class="fx-layer"></div>
+    <div id="alert-banner" class="alert-banner">
+      <span id="alert-text"></span>
+      <span id="alert-by" class="by"></span>
+    </div>
+    <div id="toast" class="toast"></div>
   </section>
 
   <section id="scr-done" class="screen">
@@ -44,6 +67,10 @@
       <div class="done-avatar" id="done-avatar"></div>
       <h2 id="done-place">Bạn đã về đích!</h2>
       <p>Bạn về đích thứ <b id="done-rank">?</b><br>Hãy nhìn lên màn hình lớn!</p>
+      <div id="done-prize" class="done-prize" hidden>
+        <span id="done-tier" class="tier"></span>
+        <span id="done-gift"></span>
+      </div>
       <button id="btn-again" class="warm-btn" hidden>Chờ vòng sau</button>
     </div>
   </section>

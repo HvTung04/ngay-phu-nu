@@ -10,11 +10,11 @@
 <body>
   <section id="scr-lobby" class="screen on">
     <div class="lobby-top">
-      <div class="qr-card"><img src="/qr.svg" alt="QR vao phong"></div>
-      <div class="qr-side">
-        <h1>MỞ ĐIỆN THOẠI<br>QUÉT QR NÀY</h1>
-        <p class="qr-url">Hoặc gõ: <b id="origin">...</b>/play</p>
-        <p class="join-count">Đã vào phòng: <b id="joined">0</b>/7</p>
+      <div class="lobby-side">
+        <h1>MỞ ĐIỆN THOẠI<br>VÀO PHÒNG</h1>
+        <p class="lobby-hint">Trên điện thoại, gõ địa chỉ này:</p>
+        <p class="lobby-url"><b id="origin">...</b></p>
+        <p class="join-count">Đã vào phòng: <b id="joined">0</b>/<b id="max-slots">12</b></p>
       </div>
     </div>
     <div id="slots" class="slots"></div>
@@ -30,7 +30,7 @@
   <section id="scr-race" class="screen">
     <div class="race-head">
       <span>ĐANG ĐUA</span>
-      <span id="race-progress">0 / 7 đã về đích</span>
+      <span id="race-progress">0 / 12 đã về đích</span>
       <button id="btn-force" class="small-btn">Đánh dấu về đích</button>
     </div>
     <div id="lanes" class="lanes"></div>
@@ -38,6 +38,7 @@
 
   <section id="scr-board" class="screen">
     <h1 class="board-title">BẢNG XẾP HẠNG</h1>
+    <p class="board-sub">TIER 1 · 3 người đầu &nbsp;|&nbsp; TIER 2 · 4 người kế tiếp &nbsp;|&nbsp; TIER 3 · 5 người còn lại</p>
     <div id="rows" class="rows"></div>
     <div class="board-actions">
       <button id="btn-replay" class="big-btn">CHƠI LẠI</button>
@@ -46,6 +47,7 @@
 
   <div id="offline" class="offline-bar">Mất kết nối với máy chủ — đang thử lại…</div>
   <div id="confetti" class="confetti"></div>
+  <div id="fx-flash" class="fx-flash"></div>
 
   <script type="module" src="/js/host.js"></script>
 </body>

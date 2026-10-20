@@ -13,10 +13,13 @@ import {
   releaseHost,
   snapshot,
   setOnline,
+  castSkill,
+  assignPrizes,
   MAX_SLOTS,
   MAX_HITS,
   MAX_HITS_PER_SEC,
   PROGRESS_MAX,
+  SKILLS,
 } from '../game.js'
 
 test('phong moi bat dau o trang thai lobby va chua co ai', () => {
@@ -53,7 +56,7 @@ test('tu choi lai thi giu nguyen slot cu va khong tao nguoi moi', () => {
   assert.deepEqual(again, { ok: true, slot: 1, player: room.players[1] })
 })
 
-test('het 7 slot thi nguoi moi bi tu choi', () => {
+test('het slot thi nguoi moi bi tu choi', () => {
   const room = createRoom()
   for (let i = 0; i < MAX_SLOTS; i++) addPlayer(room, `p${i}`, `Nguoi ${i}`)
   const full = addPlayer(room, 'x', 'Nguoi 8')
@@ -302,7 +305,7 @@ test('anh chup phong luon sap xep theo slot va khong lo thong tin rat nhop', () 
   addPlayer(room, 'p2', 'Bao')
   const snap = snapshot(room)
   assert.deepEqual(Object.keys(snap.players[0]).sort(), [
-    'id', 'name', 'online', 'place', 'progress', 'slot',
+    'boosted', 'cd', 'effects', 'gift', 'id', 'name', 'online', 'place', 'progress', 'slot', 'tier',
   ])
   assert.equal(snap.state, 'lobby')
 })
@@ -315,4 +318,298 @@ test('anh chup phong danh dau ai dang mat ket noi', () => {
   const snap = snapshot(room)
   assert.equal(snap.players[0].online, false)
   assert.equal(snap.players[1].online, true)
+})
+
+// --- Vong 4: 12 cho + 3 ky nang ---
+
+test('phong chua duoc 12 nguoi', () => {
+  assert.equal(MAX_SLOTS, 12)
+})
+
+test('nguoi thu 12 van vao duoc phong, nguoi thu 13 bi tu choi', () => {
+  const room = createRoom()
+  for (let i = 0; i < 12; i++) {
+    const joined = addPlayer(room, `p${i}`, `Nguoi ${i + 1}`)
+    assert.equal(joined.ok, true, `nguoi ${i + 1} phai vao duoc`)
+  }
+  assert.equal(room.players.length, 12)
+  assert.equal(room.players[11].slot, 11)
+  const full = addPlayer(room, 'x', 'Nguoi 13')
+  assert.equal(full.ok, false)
+  assert.equal(full.reason, 'room_full')
+})
+
+test('khong dung duoc ky nang khi chua toi han', () => {
+  const room = racingRoom(['An', 'Bao'])
+  const first = castSkill(room, 'p1', 'chan', 'p2', 0)
+  assert.equal(first.ok, true)
+  const again = castSkill(room, 'p1', 'chan', 'p2', 1000)
+  assert.equal(again.ok, false)
+  assert.equal(again.reason, 'cooldown')
+})
+
+test('ky nang toi han thi dung duoc va khoa lai dung so giay', () => {
+  const room = racingRoom(['An', 'Bao', 'Cu'])
+  const cd = SKILLS.chan.cooldown
+  assert.equal(castSkill(room, 'p1', 'chan', 'p2', 0).ok, true)
+  assert.equal(room.players[0].readyAt.chan, cd)
+  assert.equal(castSkill(room, 'p1', 'chan', 'p2', cd - 1).reason, 'cooldown')
+  assert.equal(castSkill(room, 'p1', 'chan', 'p3', cd).ok, true)
+  assert.equal(room.players[0].readyAt.chan, cd + cd)
+})
+
+test('khong dung duoc ky nang ngoai luc dua', () => {
+  const room = createRoom()
+  room.hostId = 'host1'
+  addPlayer(room, 'p1', 'An')
+  addPlayer(room, 'p2', 'Bao')
+  assert.equal(castSkill(room, 'p1', 'chan', 'p2', 0).reason, 'not_racing')
+})
+
+test('khong dung duoc ky nang sau khi da ve dich', () => {
+  const room = racingRoom(['An', 'Bao'])
+  for (let i = 0; i < MAX_HITS; i++) applyHit(room, 'p1', i * 1000)
+  assert.equal(room.players[0].place, 1)
+  assert.equal(castSkill(room, 'p1', 'chan', 'p2', 60000).reason, 'already_finished')
+})
+
+test('khong duoc nham vao nguoi da ve dich', () => {
+  const room = racingRoom(['An', 'Bao'])
+  for (let i = 0; i < MAX_HITS; i++) applyHit(room, 'p1', i * 1000)
+  const shot = castSkill(room, 'p2', 'chan', 'p1', 60000)
+  assert.equal(shot.ok, false)
+  assert.equal(shot.reason, 'target_finished')
+})
+
+test('khong duoc nham vao chinh minh', () => {
+  const room = racingRoom(['An', 'Bao'])
+  const shot = castSkill(room, 'p1', 'chan', 'p1', 0)
+  assert.equal(shot.ok, false)
+  assert.equal(shot.reason, 'self_target')
+})
+
+test('ky nang la cua nguoi chua ton tai bi tu choi', () => {
+  const room = racingRoom(['An', 'Bao'])
+  assert.equal(castSkill(room, 'p1', 'teleport', 'p2', 0).reason, 'bad_skill')
+})
+
+test('bi chan thi cham bi tu choi va tien do dung yen', () => {
+  const room = racingRoom(['An', 'Bao'])
+  castSkill(room, 'p1', 'chan', 'p2', 0)
+  const before = room.players[1].progress
+  const hit = applyHit(room, 'p2', 100)
+  assert.equal(hit.accepted, false)
+  assert.equal(hit.reason, 'blocked')
+  assert.equal(room.players[1].progress, before)
+  assert.equal(room.players[1].hits, 0)
+})
+
+test('bi chan thi khong ton token', () => {
+  const room = racingRoom(['An', 'Bao'])
+  for (let i = 0; i < MAX_HITS_PER_SEC; i++) applyHit(room, 'p2', 0)
+  const tokens = room.players[1].tokens
+  castSkill(room, 'p1', 'chan', 'p2', 0)
+  for (let i = 0; i < 5; i++) applyHit(room, 'p2', 0)
+  assert.equal(room.players[1].tokens, tokens)
+})
+
+test('het hieu ung chan thi cham duoc lai ngay', () => {
+  const room = racingRoom(['An', 'Bao'])
+  castSkill(room, 'p1', 'chan', 'p2', 0)
+  const at = SKILLS.chan.duration
+  assert.equal(applyHit(room, 'p2', at).accepted, true)
+  assert.equal(room.players[1].progress, 2.5)
+})
+
+test('bi cham thi chi nhip thu hai moi cong diem', () => {
+  const room = racingRoom(['An', 'Bao'])
+  castSkill(room, 'p1', 'cham', 'p2', 0)
+  const first = applyHit(room, 'p2', 100)
+  assert.equal(first.accepted, true)
+  assert.equal(room.players[1].progress, 0)
+  const second = applyHit(room, 'p2', 200)
+  assert.equal(second.accepted, true)
+  assert.equal(room.players[1].progress, 2.5)
+})
+
+test('mien nhiem 6 giay sau khi hieu ung het', () => {
+  const room = racingRoom(['An', 'Bao', 'Cu'])
+  castSkill(room, 'p1', 'chan', 'p3', 0)
+  const end = SKILLS.chan.duration
+  const immune = castSkill(room, 'p2', 'chan', 'p3', end)
+  assert.equal(immune.ok, false)
+  assert.equal(immune.reason, 'immune')
+  const later = castSkill(room, 'p2', 'chan', 'p3', end + SKILLS.chan.immunity)
+  assert.equal(later.ok, true)
+})
+
+test('hieu ung cung loai khong cong don va khong keo dai', () => {
+  const room = racingRoom(['An', 'Bao', 'Cu'])
+  castSkill(room, 'p1', 'chan', 'p3', 0)
+  const again = castSkill(room, 'p2', 'chan', 'p3', 100)
+  assert.equal(again.ok, false)
+  assert.equal(again.reason, 'already_affected')
+  const effect = room.players[2].effects.find((e) => e.type === 'chan')
+  assert.equal(effect.until, SKILLS.chan.duration)
+})
+
+test('hai hieu ung khac loai khong cong don vao nhau', () => {
+  const room = racingRoom(['An', 'Bao', 'Cu'])
+  castSkill(room, 'p1', 'chan', 'p3', 0)
+  castSkill(room, 'p2', 'cham', 'p3', 100)
+  const effects = room.players[2].effects
+  assert.equal(effects.length, 2)
+  assert.equal(effects.find((e) => e.type === 'chan').until, SKILLS.chan.duration)
+  assert.equal(effects.find((e) => e.type === 'cham').until, 100 + SKILLS.cham.duration)
+})
+
+test('tang toc cong dung 60 diem va khong can chon dich', () => {
+  const room = racingRoom(['An', 'Bao'])
+  const before = room.players[0].progress
+  const shot = castSkill(room, 'p1', 'tangtoc', null, 0)
+  assert.equal(shot.ok, true)
+  assert.equal(room.players[0].progress - before, 60)
+  assert.equal(castSkill(room, 'p1', 'tangtoc', null, 100).reason, 'cooldown')
+})
+
+test('tang toc duoc dung khi chua toi han thi khoa lai dung so giay', () => {
+  const room = racingRoom(['An', 'Bao'])
+  const cd = SKILLS.tangtoc.cooldown
+  assert.equal(castSkill(room, 'p1', 'tangtoc', null, 0).ok, true)
+  assert.equal(room.players[0].readyAt.tangtoc, cd)
+  assert.equal(castSkill(room, 'p1', 'tangtoc', null, cd).ok, true)
+})
+
+test('anh chup phong cho biet hieu ung con lai va thoi gian hoi lai', () => {
+  const room = racingRoom(['An', 'Bao'])
+  castSkill(room, 'p1', 'chan', 'p2', 0)
+  const snap = snapshot(room, 1000)
+  const victim = snap.players[1]
+  assert.equal(victim.effects.length, 1)
+  assert.equal(victim.effects[0].type, 'chan')
+  assert.equal(victim.effects[0].ms, SKILLS.chan.duration - 1000)
+  assert.equal(victim.cd.chan, 0)
+  assert.equal(snap.players[0].cd.chan, SKILLS.chan.cooldown - 1000)
+  assert.equal(snap.players[0].effects.length, 0)
+})
+
+test('choi lai thi xoa sach ky nang va hieu ung', () => {
+  const room = racingRoom(['An', 'Bao'])
+  castSkill(room, 'p1', 'chan', 'p2', 0)
+  castSkill(room, 'p1', 'tangtoc', null, 0)
+  resetToLobby(room, 'host1')
+  const p1 = room.players[0]
+  const p2 = room.players[1]
+  assert.deepEqual(p1.effects, [])
+  assert.deepEqual(p2.effects, [])
+  assert.equal(p1.readyAt.chan, 0)
+  assert.equal(p1.readyAt.tangtoc, 0)
+  assert.equal(p2.slowFlip, false)
+})
+
+// --- Vong 5: qua theo tier ---
+
+const GIFTS = [
+  { id: 'a1', name: 'Qua A1', tier: 1 },
+  { id: 'a2', name: 'Qua A2', tier: 1 },
+  { id: 'a3', name: 'Qua A3', tier: 1 },
+  { id: 'b1', name: 'Qua B1', tier: 2 },
+  { id: 'b2', name: 'Qua B2', tier: 2 },
+  { id: 'b3', name: 'Qua B3', tier: 2 },
+  { id: 'b4', name: 'Qua B4', tier: 2 },
+  { id: 'c1', name: 'Qua C1', tier: 3 },
+  { id: 'c2', name: 'Qua C2', tier: 3 },
+  { id: 'c3', name: 'Qua C3', tier: 3 },
+  { id: 'c4', name: 'Qua C4', tier: 3 },
+  { id: 'c5', name: 'Qua C5', tier: 3 },
+]
+
+function finishedRoom(count = 12) {
+  const room = createRoom()
+  room.hostId = 'host1'
+  for (let i = 0; i < count; i++) addPlayer(room, `p${i + 1}`, `N${i + 1}`)
+  startCountdown(room, 'host1')
+  beginRace(room)
+  for (let i = 0; i < count; i++) forceFinish(room, `p${i + 1}`, 1000 * (i + 1))
+  return room
+}
+
+test('tier 1 cho 3 nguoi dau, tier 2 cho 4 nguoi tiep, tier 3 cho 5 nguoi cuoi', () => {
+  const room = finishedRoom(12)
+  assignPrizes(room, GIFTS)
+  const tiers = room.players.map((p) => p.tier)
+  assert.deepEqual(tiers, [1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3])
+})
+
+test('mon qua trong cung tier chia theo thu tu hang', () => {
+  const room = finishedRoom(12)
+  assignPrizes(room, GIFTS)
+  assert.equal(room.players[0].gift, 'Qua A1')
+  assert.equal(room.players[2].gift, 'Qua A3')
+  assert.equal(room.players[3].gift, 'Qua B1')
+  assert.equal(room.players[6].gift, 'Qua B4')
+  assert.equal(room.players[7].gift, 'Qua C1')
+  assert.equal(room.players[11].gift, 'Qua C5')
+})
+
+test('phong it nguoi thi tier rut gon theo so hang', () => {
+  const room = finishedRoom(5)
+  assignPrizes(room, GIFTS)
+  assert.deepEqual(room.players.map((p) => p.tier), [1, 1, 1, 2, 2])
+  assert.equal(room.players[4].gift, 'Qua B2')
+})
+
+test('nguoi khong ve dich thi khong co qua', () => {
+  const room = createRoom()
+  room.hostId = 'host1'
+  for (let i = 0; i < 4; i++) addPlayer(room, `p${i + 1}`, `N${i + 1}`)
+  startCountdown(room, 'host1')
+  beginRace(room)
+  for (let i = 0; i < 3; i++) forceFinish(room, `p${i + 1}`, 1000 * (i + 1))
+  assignPrizes(room, GIFTS)
+  assert.equal(room.players[3].tier, null)
+  assert.equal(room.players[3].gift, null)
+})
+
+test('khong co mon qua trong tier thi tier van duoc gan', () => {
+  const room = finishedRoom(12)
+  assignPrizes(room, GIFTS.filter((g) => g.tier !== 3))
+  assert.equal(room.players[7].tier, 3)
+  assert.equal(room.players[7].gift, null)
+})
+
+test('anh chup phong co tier va mon qua', () => {
+  const room = finishedRoom(12)
+  assignPrizes(room, GIFTS)
+  const snap = snapshot(room, 20000)
+  assert.equal(snap.players[0].tier, 1)
+  assert.equal(snap.players[0].gift, 'Qua A1')
+  assert.equal(snap.players[11].tier, 3)
+  assert.equal(snap.players[11].gift, 'Qua C5')
+})
+
+test('choi lai thi xoa tier va mon qua', () => {
+  const room = finishedRoom(12)
+  assignPrizes(room, GIFTS)
+  resetToLobby(room, 'host1')
+  assert.equal(room.players[0].tier, null)
+  assert.equal(room.players[0].gift, null)
+})
+
+// --- Vong 6: bi ai lam cho ---
+
+test('hieu ung ghi nhung ai gay ra', () => {
+  const room = racingRoom(['An', 'Bao'])
+  castSkill(room, 'p1', 'chan', 'p2', 0)
+  const effect = room.players[1].effects.find((e) => e.type === 'chan')
+  assert.equal(effect.by, 'p1')
+})
+
+test('anh chup phong cho biet ai gay ra hieu ung', () => {
+  const room = racingRoom(['An', 'Bao'])
+  castSkill(room, 'p1', 'cham', 'p2', 0)
+  const snap = snapshot(room, 1000)
+  const effect = snap.players[1].effects[0]
+  assert.equal(effect.by, 'p1')
+  assert.deepEqual(Object.keys(effect).sort(), ['by', 'ms', 'type'])
 })

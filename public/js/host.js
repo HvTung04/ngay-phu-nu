@@ -10,9 +10,10 @@ const screens = ['scr-lobby', 'scr-countdown', 'scr-race', 'scr-board']
 let state = 'lobby'
 let players = []
 let order = []
-let maxSlots = 7
+let maxSlots = 12
 let lastForceOpen = false
 let confettiTimer = null
+let flashUntil = {}
 
 const net = connect(onMessage, (status) => {
   $('offline').classList.toggle('on', status === 'offline')
@@ -51,8 +52,15 @@ function onMessage(msg) {
         sfx.finish()
       }
       break
+    case 'skill_cast':
+      if (msg.targetId && msg.effect !== 'boost') flashUntil[msg.targetId] = Date.now() + 1600
+      sfx.skill(msg.effect)
+      flashScreen(msg.effect)
+      render()
+      break
     case 'finish':
       order = msg.order
+      if (msg.players) players = msg.players
       renderBoard(msg.order)
       switchTo('scr-board')
       sfx.fanfare()
@@ -76,7 +84,9 @@ function render() {
     return
   }
   if (state === 'finished' && order.length) {
-    renderBoard(order)
+    // Khong ve lai bang xep hang khi da hien: moi lan ve lai se lam dong
+    // animation cua tung hang chay lai, dong duoi khong bao gio hien.
+    if (!$('scr-board').classList.contains('on')) renderBoard(order)
     switchTo('scr-board')
     return
   }
@@ -86,6 +96,7 @@ function render() {
 
 function renderLobby() {
   $('joined').textContent = String(players.length)
+  $('max-slots').textContent = String(maxSlots)
   $('origin').textContent = location.origin
   $('btn-start').disabled = false
   $('slots').innerHTML = Array.from({ length: maxSlots }, (_, i) => {
@@ -101,7 +112,7 @@ function renderLobby() {
   }).join('')
 }
 
-const RUNNER_W = 46
+const RUNNER_W = 64
 
 function renderRace() {
   const lanes = $('lanes')
@@ -109,10 +120,18 @@ function renderRace() {
   $('race-progress').textContent = `${done} / ${players.length} đã về đích`
 
   if (!lanes.children.length) {
+    const columns = players.length > 6 ? 2 : 1
+    const rows = Math.max(1, Math.ceil(players.length / columns))
+    lanes.classList.toggle('single', columns === 1)
+    lanes.style.setProperty('--cols', String(columns))
+    lanes.style.setProperty('--lane-rows', String(rows))
     lanes.innerHTML = players
       .map(
-        (p, i) => `<div class="lane${i % 2 ? ' odd' : ''}" data-id="${p.id}">
-        <span class="name">${escapeHtml(p.name)}</span>
+        (p, i) => `<div class="lane" data-id="${p.id}" data-col="${Math.floor(i / rows)}">
+        <span class="lane-top">
+          <span class="name">${escapeHtml(p.name)}</span>
+          <span class="badge"></span>
+        </span>
         <span class="finish"></span>
         <span class="pct">0%</span>
         <div class="runner-wrap" style="--p:0">${runnerSvg(p.name)}</div>
@@ -124,6 +143,7 @@ function renderRace() {
     return
   }
 
+  const now = Date.now()
   for (const p of players) {
     const lane = lanes.querySelector(`[data-id="${CSS.escape(p.id)}"]`)
     if (!lane) continue
@@ -134,7 +154,47 @@ function renderRace() {
     if (p.place !== null) {
       lane.querySelector('.pct').textContent = `Hạng ${p.place}`
     }
+    lane.classList.toggle('targeted', (flashUntil[p.id] ?? 0) > now)
+    const effects = p.effects ?? []
+    lane.classList.toggle('blocked', effects.some((e) => e.type === 'chan'))
+    lane.classList.toggle('slowed', effects.some((e) => e.type === 'cham'))
+    lane.classList.toggle('boosted', Boolean(p.boosted))
+    renderBadge(lane.querySelector('.badge'), p)
   }
+}
+
+function flashScreen(kind) {
+  const el = $('fx-flash')
+  el.className = 'fx-flash'
+  void el.offsetWidth
+  el.className = `fx-flash on ${kind}`
+}
+
+function renderBadge(badge, p) {
+  const effects = p.effects ?? []
+  const blocked = effects.find((e) => e.type === 'chan')
+  const slowed = effects.find((e) => e.type === 'cham')
+  const by = (eff) => {
+    const who = players.find((x) => x.id === eff.by)
+    return who ? ` · ${who.name}` : ''
+  }
+  if (blocked) {
+    badge.textContent = `⛔ BỊ CHẶN ${(blocked.ms / 1000).toFixed(1)}s${by(blocked)}`
+    badge.className = 'badge on chan'
+    return
+  }
+  if (slowed) {
+    badge.textContent = `🐌 BỊ CHẬM ${(slowed.ms / 1000).toFixed(1)}s${by(slowed)}`
+    badge.className = 'badge on cham'
+    return
+  }
+  if (p.boosted) {
+    badge.textContent = '⚡ TĂNG TỐC!'
+    badge.className = 'badge on boost'
+    return
+  }
+  badge.textContent = ''
+  badge.className = 'badge'
 }
 
 function showCountdown(n) {
@@ -155,10 +215,14 @@ function renderBoard(order) {
   $('rows').innerHTML = ranked
     .map((p, i) => {
       const place = p.place ?? i + 1
+      const tier = p.tier ? `<span class="tier t${p.tier}">TIER ${p.tier}</span>` : ''
+      const gift = p.gift ? `<span class="gift">${escapeHtml(p.gift)}</span>` : '<span class="gift none">—</span>'
       return `<div class="row${place === 1 ? ' first' : ''}" style="animation-delay:${i * 90}ms">
         <span class="rank">${place}</span>
         <div class="avatar">${runnerSvg(p.name).replace('class="runner"', 'class="runner done"')}</div>
         <span class="nm">${escapeHtml(p.name)}</span>
+        ${tier}
+        ${gift}
         <span class="taps">${Math.floor(p.progress / 10)}%</span>
       </div>`
     })
@@ -185,7 +249,7 @@ function stopConfetti() {
 
 function flash(reason) {
   const map = {
-    room_full: 'Phòng đã đủ 7 người.',
+    room_full: 'Phòng đã đủ 12 người.',
     host_exists: 'Đã có máy chiếu khác đang điều khiển.',
     not_host: 'Chỉ máy chiếu mới làm được.',
     already_started: 'Trận đã bắt đầu.',
@@ -209,6 +273,7 @@ $('btn-replay').addEventListener('click', () => {
   stopConfetti()
   $('confetti').innerHTML = ''
   $('lanes').innerHTML = ''
+  flashUntil = {}
   net.send({ type: 'host_replay' })
 })
 

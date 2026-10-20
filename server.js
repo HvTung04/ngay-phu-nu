@@ -3,7 +3,6 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
-import QRCode from 'qrcode'
 import {
   createRoom,
   addPlayer,
@@ -14,12 +13,15 @@ import {
   startCountdown,
   beginRace,
   applyHit,
+  castSkill,
   forceFinish,
   resetToLobby,
   snapshot,
+  assignPrizes,
   MAX_HITS,
   MAX_SLOTS,
   MAX_HITS_PER_SEC,
+  SKILLS,
 } from './game.js'
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
@@ -31,14 +33,29 @@ const HEARTBEAT_MS = 500
 const COUNTDOWN_FROM = 3
 
 const room = createRoom()
+const gifts = loadGifts()
+
+function loadGifts() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'gifts.json'), 'utf8'))
+    return Array.isArray(raw.gifts) ? raw.gifts : []
+  } catch (err) {
+    console.warn('[ngay-phu-nu] khong doc duoc gifts.json:', err.message)
+    return []
+  }
+}
 
 const PAGES = new Map([
-  ['/', 'index.html'],
-  ['/index.html', 'index.html'],
   ['/host', 'host.html'],
   ['/host.html', 'host.html'],
   ['/play', 'play.html'],
   ['/play.html', 'play.html'],
+])
+
+// Nguoi choi mo domain la vao thang trang dien thoai, khong phai chon.
+const REDIRECTS = new Map([
+  ['/', '/play'],
+  ['/index.html', '/play'],
 ])
 
 const MIME = {
@@ -53,8 +70,6 @@ const MIME = {
   '.ico': 'image/x-icon',
 }
 
-const qrCache = new Map()
-
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://placeholder')
   const pathname = decodeURIComponent(url.pathname)
@@ -63,12 +78,14 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { ok: true, state: room.state, players: room.players.length })
   }
 
-  if (pathname === '/qr.svg') {
-    return sendQr(res, req)
-  }
-
   if (pathname === '/room.json') {
     return sendJson(res, 200, snapshot(room))
+  }
+
+  const redirect = REDIRECTS.get(pathname)
+  if (redirect) {
+    res.writeHead(302, { location: redirect, 'cache-control': 'no-store' })
+    return res.end()
   }
 
   const file = resolvePage(pathname)
@@ -112,32 +129,6 @@ function sendText(res, code, value) {
   res.end(value)
 }
 
-async function sendQr(res, req) {
-  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? `localhost:${PORT}`)
-  const proto = String(req.headers['x-forwarded-proto'] ?? 'http').split(',')[0].trim()
-  const target = `${proto}://${host}/play`
-
-  try {
-    let svg = qrCache.get(target)
-    if (!svg) {
-      svg = await QRCode.toString(target, {
-        type: 'svg',
-        margin: 1,
-        width: 320,
-        color: { dark: '#1a1033', light: '#ffffff' },
-      })
-      qrCache.set(target, svg)
-    }
-    res.writeHead(200, {
-      'content-type': 'image/svg+xml',
-      'cache-control': 'no-store',
-    })
-    res.end(svg)
-  } catch (err) {
-    sendText(res, 500, 'QR error')
-  }
-}
-
 const wss = new WebSocketServer({ server })
 
 wss.on('connection', (ws) => {
@@ -175,6 +166,8 @@ function handle(ws, msg) {
       return playerJoin(ws, msg)
     case 'hit':
       return hit(ws)
+    case 'cast':
+      return cast(ws, msg)
     case 'host_start':
       return hostStart(ws)
     case 'host_force_finish':
@@ -189,7 +182,7 @@ function hostClaim(ws) {
   if (!result.ok) return send(ws, { type: 'error', reason: result.reason })
   ws.isHost = true
   ws.hostId = ws.id
-  send(ws, { type: 'welcome', role: 'host', maxHits: MAX_HITS, maxSlots: MAX_SLOTS })
+  send(ws, { type: 'welcome', role: 'host', maxHits: MAX_HITS, maxSlots: MAX_SLOTS, skills: skillInfo() })
   broadcastState()
 }
 
@@ -208,13 +201,48 @@ function playerJoin(ws, msg) {
     slot: result.slot,
     maxHits: MAX_HITS,
     maxHitsPerSec: MAX_HITS_PER_SEC,
+    skills: skillInfo(),
   })
   broadcastState()
+}
+
+function skillInfo() {
+  return Object.values(SKILLS).map((s) => ({
+    id: s.id,
+    name: s.name,
+    kind: s.kind,
+    cooldown: s.cooldown,
+    duration: s.duration ?? 0,
+    bonus: s.bonus ?? 0,
+  }))
 }
 
 function hit(ws) {
   if (!ws.playerId) return
   applyHit(room, ws.playerId, Date.now())
+}
+
+function cast(ws, msg) {
+  if (!ws.playerId) return send(ws, { type: 'error', reason: 'no_player' })
+  const skillId = String(msg.skillId ?? '')
+  const targetId = msg.targetId ? String(msg.targetId) : null
+  const now = Date.now()
+  const result = castSkill(room, ws.playerId, skillId, targetId, now)
+  if (!result.ok) return send(ws, { type: 'error', reason: result.reason, skillId })
+
+  sendAll({
+    type: 'skill_cast',
+    skillId: result.skillId,
+    casterId: ws.playerId,
+    targetId: result.targetId ?? null,
+    effect: result.effect,
+    duration: result.duration ?? 0,
+    at: now,
+  })
+
+  if (result.finished) {
+    sendAll({ type: 'player_finished', playerId: ws.playerId, place: result.place })
+  }
 }
 
 function hostStart(ws) {
@@ -267,7 +295,9 @@ function startTick() {
       room.state = 'finished'
       clearInterval(tickTimer)
       tickTimer = null
-      sendAll({ type: 'finish', order: snap.order })
+      assignPrizes(room, gifts)
+      const final = snapshot(room)
+      sendAll({ type: 'finish', order: final.order, players: final.players })
     }
   }, TICK_MS)
 }
